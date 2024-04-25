@@ -76,10 +76,45 @@ It can take some time, between 5 min and 30 min depending on your machine.
 
 ### Generating the system and workload
 
+Detailed instructions about system and workload generation can be found in the
+main Chop Chop repository.
 
+The `docker-generate.sh` script automatically generates a system and some
+pre-processed batches based on the setup file and experiment settings.
+Under the hood, it calls the `script/control-generate` script from a Docker
+container.
+
+Feel free to inspect the `script/control-generate` to understand better how
+each parameter is set or to use it for a real workd deployment.
+
+To generate the assets for the example setup and settings:
 
     ./docker-generate.sh example/setup.txt example/settings.sh assets
 
+The pre-processed batches generation is CPU intensive and time consuming.
+Also, the generated files can be large for big or long experiments.
+For the files in the 'example' directory, the generation can take between 5 min
+and 30 min depending on your machine.
+
+
+### Starting the Docker network
+
+This step start a private Docker network as specified in the setup file.
+It also imports the setup file, the experiment settings and the generated
+assets if provided.
+
     ./docker-run.sh example/setup.txt example/settings.sh assets
+
+Under the hood, this command starts several Docker containers plus an
+additional container used as a control node.
+This control node immediately executes `docker-init.sh`.
+This short script configures all the nodes in the network with Silk so they
+know their role and optionally send the assets to every node.
+A similar process should be followed for real world deployment.
+
+
+### Running the experiment
+
+
 
     ./script/control-benchmark mnt/setup.txt mnt/settings.txt env.sh

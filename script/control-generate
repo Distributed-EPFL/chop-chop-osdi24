@@ -1,6 +1,19 @@
 #!/bin/bash
 #
+#   control-generate - generate system and workload for a given setup
 #
+#   Read the setup file and the experiment settings and generate all the assets
+#   required to do a full Chop Chop experiment.
+#
+#   Syntax: control-generate <setup> <settings> <passepartout> <membership>
+#                            <directory> <flows>
+#
+#   setup           path for the setup file
+#   settings        path for the experiment settings file
+#   passepartout    where to create the passepartout (file)
+#   membership      where to create the membership (file)
+#   directory       whete to create the directory (file)
+#   flows           where to create the flows (directory)
 #
 
 set -e
@@ -101,7 +114,6 @@ load_broker_batch_per_sec="$(div_float ${load_broker_ops} ${batch_size})"
 batch_per_flow="$(mul_float ${duration} "${load_broker_batch_per_sec}")"
 
 load_broker_cooldown="$(mul_float ${latency_estimate} "${load_broker_batch_per_sec}")"
-
 
 
 ./chop-chop/target/release/generate_system \

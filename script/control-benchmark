@@ -100,14 +100,12 @@ load_broker_batch_per_sec="$(div_float ${load_broker_ops} ${batch_size})"
 batch_per_flow="$(mul_float ${duration} "${load_broker_batch_per_sec}")"
 
 
-# Checkup
-
-
 tmpdir=
 
 rendezvous_pid=
 tobcast_pid=
 server_pid=
+load_broker_pid=
 honest_broker_pid=
 load_client_pid=
 honest_client_pid=
@@ -125,6 +123,11 @@ atexit() {
     if [ "x${load_client_pid}" != 'x' ] ; then
 	echo '  -> load clients'
 	kill -INT ${load_client_pid}
+    fi
+
+    if [ "x${load_broker_pid}" != 'x' ] ; then
+	echo '  -> load brokers'
+	kill -INT ${load_broker_pid}
     fi
 
     if [ "x${honest_broker_pid}" != 'x' ] ; then
@@ -286,7 +289,7 @@ export RUST_LOG='info'
     --heartbeat-path "result/load_broker_\$1.bin"
     
 EOF
-honest_broker_pid=$!
+load_broker_pid=$!
 
 
 echo "==> Launch honest brokers" # --------------------------------------------
