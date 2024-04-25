@@ -112,9 +112,21 @@ This short script configures all the nodes in the network with Silk so they
 know their role and optionally send the assets to every node.
 A similar process should be followed for real world deployment.
 
+Exiting the prompt of the control node deletes the network.
+
 
 ### Running the experiment
 
-
+To run an experiment, make sure all nodes have the appropriate assets in an
+'assets' directory then run the following command:
 
     ./script/control-benchmark mnt/setup.txt mnt/settings.txt env.sh
+
+The 'env.sh' file is created by `docker-init.sh`.
+If you are using a real world deployment, make sure to follow the same process
+as this script.
+The previous command creates a directory ending with a '.result' containing the
+log files for every node in the system.
+
+This command follows the step described in the main Chop Chop repository but
+in an automated way.

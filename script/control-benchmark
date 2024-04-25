@@ -87,6 +87,11 @@ done < "${setup_path}"
 
 num_nodes=$(( num_servers + num_load_brokers + num_honest_brokers + num_load_clients + num_honest_clients ))
 
+
+# The following computations should be the same as the one in
+# 'script/control-generate'.
+#
+
 extended_latency=$(( latency_estimate + 2 ))
 
 num_honest_client_accounts=${num_honest_clients}
@@ -349,6 +354,7 @@ export RUST_LOG='info'
 
 EOF
 load_client_pid=$! 
+
 
 echo "==> Launch honest clients" # --------------------------------------------
 
