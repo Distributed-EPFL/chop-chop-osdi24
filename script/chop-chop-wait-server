@@ -1,0 +1,27 @@
+#!/bin/bash
+#
+#
+#
+
+set -e
+
+
+shift
+logfile="$1" ; shift
+
+timeout="$1"                  # get timeout or default to 360 seconds
+if ! shift ; then
+    timeout=360
+fi
+
+
+while ! grep -q 'MOPps' "${logfile}" 2> '/dev/null' ; do
+    timeout=$(( timeout - 1 ))
+
+    if [ ${timeout} -eq 0 ] ; then
+        echo "failed to start server"
+        exit 1
+    fi >&2
+
+    sleep 1
+done

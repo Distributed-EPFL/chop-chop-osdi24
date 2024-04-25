@@ -1,0 +1,125 @@
+#!/bin/bash
+#
+#
+#
+
+set -e
+
+
+setup_path="$1" ; shift
+
+settings_path="$1" ; shift
+
+passepartout_path="$1" ; shift
+
+membership_path="$1" ; shift
+
+directory_path="$1" ; shift
+
+flows_path="$1" ; shift
+
+
+source "${settings_path}"
+
+
+div_float() {
+    local a="$1" ; shift
+    local b="$1" ; shift
+
+    perl -e "\$a = ${a};" \
+	 -e "\$b = ${b};" \
+	 -e 'printf("%.02f\n", $a / $b);'
+}
+
+mul_float() {
+    local a="$1" ; shift
+    local b="$1" ; shift
+
+    perl -e "\$a = ${a};" \
+	 -e "\$b = ${b};" \
+	 -e 'printf("%.02f\n", $a * $b);'
+}
+
+ceil() {
+    local float="$1" ; shift
+
+    perl -e "\$value = ${float};" \
+	 -e 'if ($value != int($value)) {' \
+	 -e '    $value = int($value) + 1;' \
+	 -e '}' \
+	 -e 'printf("%d\n", $value);'
+}
+
+
+num_servers=0
+
+num_load_brokers=0
+
+num_load_clients=0
+
+num_honest_clients=0
+
+while read role _ ; do
+    case "x${role}" in
+	'xserver')
+	    num_servers=$(( num_servers + 1 ))
+	    ;;
+	'xload-broker')
+	    num_load_brokers=$(( num_load_brokers + 1 ))
+	    ;;
+	'xload-client')
+	    num_load_clients=$(( num_load_clients + 1 ))
+	    ;;
+	'xhonest-client')
+	    num_honest_clients=$(( num_honest_clients + 1 ))
+	    ;;
+    esac
+done < "${setup_path}"
+
+
+extended_latency=$(( latency_estimate + 2 ))
+
+
+num_honest_client_accounts=${num_honest_clients}
+
+num_load_client_accounts=$(( num_load_clients * load_client_ops * extended_latency ))
+
+num_load_broker_accounts=$(( num_load_brokers * load_broker_ops * extended_latency ))
+
+
+num_accounts=$(( num_honest_client_accounts + num_load_client_accounts + num_load_broker_accounts ))
+
+
+start_load_broker_account=$(( num_honest_client_accounts + num_load_client_accounts ))
+
+end_load_broker_account=$(( start_load_broker_account + num_load_broker_accounts ))
+
+num_flows=${num_load_brokers}
+
+load_broker_batch_per_sec="$(div_float ${load_broker_ops} ${batch_size})"
+
+batch_per_flow="$(mul_float ${duration} "${load_broker_batch_per_sec}")"
+
+load_broker_cooldown="$(mul_float ${latency_estimate} "${load_broker_batch_per_sec}")"
+
+
+
+./chop-chop/target/release/generate_system \
+     ${num_servers} \
+     ${num_accounts} \
+     "${passepartout_path}" \
+     "${membership_path}" \
+     "${directory_path}"
+
+./chop-chop/target/release/generate_batches \
+     "${passepartout_path}" \
+     "${directory_path}" \
+     ${start_load_broker_account} \
+     ${end_load_broker_account} \
+     ${batch_size} \
+     ${num_flows} \
+     $(ceil "${batch_per_flow}") \
+     $(ceil "${load_broker_cooldown}") \
+     "${reduction_probability}" \
+     "${flows_path}" \
+     "--${application}"

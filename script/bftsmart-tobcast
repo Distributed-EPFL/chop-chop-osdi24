@@ -1,0 +1,25 @@
+#!/bin/bash
+#
+#   bftsmart-tobcast - start a BFT-SMaRt server as Chop Chop TOBcast
+#
+#   Syntax: bftsmart-tobcast <id> <num-servers> <batch-size>
+#
+#   id              id of the server (starting at 0)
+#   batch-size      max number of request per batch
+#
+
+set -x
+set -e
+
+
+id=$1 ; shift
+batch_size=$1 ; shift
+
+
+cd "${HOME}/bftsmart/build/install/library"
+
+sed -ri -e "s/system\.totalordermulticast\.maxbatchsize.*/system.totalordermulticast.maxbatchsize = ${batch_size}/" 'config/system.config'
+
+java -Djava.security.properties="./config/java.security" \
+     -Dlogback.configurationFile="./config/logback.xml" \
+     -cp "lib/*" bftsmart.demo.tobcast.TobcastServer ${id}

@@ -1,0 +1,76 @@
+#!/bin/bash
+#
+#   control-silk-kv - set Silk key/value for many nodes from a setup file
+#
+#   Set the key/value pairs for all the nodes listed in the given setup file.
+#   These key/value pairs are used to simplify automated tests in a distributed
+#   environment.
+#   The key/value are the ones specified after the IP column of each node in
+#   the setup file.
+#
+#   For example, for the following setup file:
+#
+#       network 192.168.0.0/24
+#       server 1.1.1.1 foo=bar
+#       server 1.1.1.2
+#       honest-client 2.2.2.2 broker=3.3.3.3
+#
+#   This script will run the following commands:
+#
+#       silk kv '1.1.1.1:3200' 'foo=bar'
+#       silk kv '2.2.2.2:3200' 'broker=3.3.3.3'
+#
+#   Additionally, this script will automatically set the 'role', 'ip' and 'id'
+#   pairs as follows:
+#
+#       silk kv '1.1.1.1:3200' 'role=server' 'ip=1.1.1.1' 'id=0'
+#       silk kv '1.1.1.2:3200' 'role=server' 'ip=1.1.1.2' 'id=1'
+#       silk kv '2.2.2.2:3200' 'role=honest-client' 'ip=2.2.2.2' 'id=0'
+#
+#   Syntax: control-silk-kv <setup>
+#
+#   setup           path of the setup file
+#
+
+set -e
+
+
+# Silk port to indicate when defining the route variables.
+#
+SILK_PORT=3200
+
+
+# Get the path of the setup file in the first argument.
+#
+setup_path="$1" ; shift
+
+
+tmpdir="$(mktemp -d --suffix='.d' "${0##*/}.XXXXXX")"
+trap "rm -rf '${tmpdir}'" 'EXIT'
+
+
+while read role ip kvs ; do
+    # Ignore empty lines or network definition
+    #
+    if [ "x${role}" = 'x' -o "x${role}" = 'xnetwork' ] ; then
+	continue
+    fi
+
+    # This is used to count how many nodes have been read for each role.
+    # Every time we read a node with a role, we write its IP (it could be
+    # anything else) in the file with the role name.
+    # The number of nodes for a role is the number of lines in the file.
+    #
+    touch "${tmpdir}/${role}"
+    id=$(cat "${tmpdir}/${role}" | wc -l)
+    echo "${ip}" >> "${tmpdir}/${role}"
+
+    # Do all silk calls in parallel.
+    #
+    silk kv "${ip}:${SILK_PORT}" role="${role}" ip="${ip}" id=${id} ${kvs} &
+done < "${setup_path}"
+
+
+# Wait for all silk calls to finish.
+#
+wait

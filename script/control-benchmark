@@ -1,0 +1,411 @@
+#!/bin/bash
+#
+#   benchmark - run a chop chop benchmark
+#
+#   Run a fully automated Chop Chop benchmark, assuming that all nodes are
+#   deployed correctly.
+#
+
+set -e
+
+
+setup_path="$1" ; shift
+
+settings_path="$1" ; shift
+
+silk_env="$1" ; shift
+
+
+source "${settings_path}"
+
+source "${silk_env}"
+
+
+div_float() {
+    local a="$1" ; shift
+    local b="$1" ; shift
+
+    perl -e "\$a = ${a};" \
+	 -e "\$b = ${b};" \
+	 -e 'printf("%.02f\n", $a / $b);'
+}
+
+mul_float() {
+    local a="$1" ; shift
+    local b="$1" ; shift
+
+    perl -e "\$a = ${a};" \
+	 -e "\$b = ${b};" \
+	 -e 'printf("%.02f\n", $a * $b);'
+}
+
+ceil() {
+    local float="$1" ; shift
+
+    perl -e "\$value = ${float};" \
+	 -e 'if ($value != int($value)) {' \
+	 -e '    $value = int($value) + 1;' \
+	 -e '}' \
+	 -e 'printf("%d\n", $value);'
+}
+
+
+rendezvous_ip=
+
+num_servers=0
+
+num_load_brokers=0
+
+num_honest_brokers=0
+
+num_load_clients=0
+
+num_honest_clients=0
+
+while read role ip _ ; do
+    case "x${role}" in
+	'xrendezvous')
+	    rendezvous_ip="${ip}"
+	    ;;
+	'xserver')
+	    num_servers=$(( num_servers + 1 ))
+	    ;;
+	'xload-broker')
+	    num_load_brokers=$(( num_load_brokers + 1 ))
+	    ;;
+	'xhonest-broker')
+	    num_honest_brokers=$(( num_honest_brokers + 1 ))
+	    ;;
+	'xload-client')
+	    num_load_clients=$(( num_load_clients + 1 ))
+	    ;;
+	'xhonest-client')
+	    num_honest_clients=$(( num_honest_clients + 1 ))
+	    ;;
+    esac
+done < "${setup_path}"
+
+num_nodes=$(( num_servers + num_load_brokers + num_honest_brokers + num_load_clients + num_honest_clients ))
+
+extended_latency=$(( latency_estimate + 2 ))
+
+num_honest_client_accounts=${num_honest_clients}
+
+account_per_load_client=$(( load_client_ops * extended_latency ))
+
+num_load_client_accounts=$(( num_load_clients * account_per_load_client ))
+
+load_broker_batch_per_sec="$(div_float ${load_broker_ops} ${batch_size})"
+
+batch_per_flow="$(mul_float ${duration} "${load_broker_batch_per_sec}")"
+
+
+# Checkup
+
+
+tmpdir=
+
+rendezvous_pid=
+tobcast_pid=
+server_pid=
+honest_broker_pid=
+load_client_pid=
+honest_client_pid=
+
+atexit() {
+    set +e
+
+    echo "==> Kill remaining processes"
+
+    if [ "x${honest_client_pid}" != 'x' ] ; then
+	echo '  -> honest clients'
+	kill -INT ${honest_client_pid}
+    fi
+
+    if [ "x${load_client_pid}" != 'x' ] ; then
+	echo '  -> load clients'
+	kill -INT ${load_client_pid}
+    fi
+
+    if [ "x${honest_broker_pid}" != 'x' ] ; then
+	echo '  -> honest brokers'
+	kill -INT ${honest_broker_pid}
+    fi
+
+    if [ "x${server_pid}" != 'x' ] ; then
+	echo '  -> servers'
+	kill -INT ${server_pid}
+    fi
+
+    if [ "x${tobcast_pid}" != 'x' ] ; then
+	echo '  -> tobcast servers'
+	kill -INT ${tobcast_pid}
+    fi
+
+    if [ "x${rendezvous_pid}" != 'x' ] ; then
+	echo '  -> rendezvous'
+	kill -INT ${rendezvous_pid}
+    fi
+
+    if [ -e "${tmpdir}" ] ; then
+	echo "==> Remove temporary working directory: '${tmpdir}'"
+	rm -rf "${tmpdir}"
+    fi
+}
+
+trap atexit 'EXIT'
+
+
+printf "==> Create temporary working directory " # ----------------------------
+tmpdir="$(mktemp -d --suffix='.d' "${0##*/}.XXXXXX")"
+echo "'${tmpdir}'"
+
+
+echo "==> Setup tobcast servers" # --------------------------------------------
+
+if [ "${tobcast}" = 'bftsmart' ] ; then
+    silk run --stdout='raw' "${server}" \
+	echo "%{id} %{ip} 7000 9000" \
+	| sort -g \
+	> "${tmpdir}/hosts.config"
+
+    silk send -t '/home/ubuntu/bftsmart/build/install/library/config' \
+	 "${server}" "${tmpdir}/hosts.config"
+
+    silk run "${server}" sed -ri 's/%{ip}/0.0.0.0/' \
+	 'bftsmart/build/install/library/config/hosts.config'
+elif [ "${tobcast}" = 'hotstuff' ] ; then
+    # TODO
+    true
+fi
+
+
+echo "==> Launch rendezvous" # ------------------------------------------------
+
+
+silk run --local-command "${rendezvous}" <<EOF &
+#!/bin/bash
+
+mkdir 'result'
+
+exec > 'result/rendezvous.out'
+exec 2> 'result/rendezvous.err'
+
+set -x
+
+./chop-chop/target/release/rendezvous 1234 "${num_nodes}"
+
+EOF
+rendezvous_pid=$!
+
+
+echo "==> Launch tobcast servers" # -------------------------------------------
+
+silk run --local-command "${server}" - '%{id}' <<EOF &
+#!/bin/bash
+
+mkdir 'result'
+
+./script/${tobcast}-tobcast \$1 ${batch} \\
+    > "result/tobcast_\$1.out" \\
+    2> "result/tobcast_\$1.err"
+
+EOF
+tobcast_pid=$!
+
+
+echo "==> Wait rendezvous" # --------------------------------------------------
+
+silk run "${rendezvous}" ./script/chop-chop-wait-rendezvous \
+     'result/rendezvous.out' 'result/rendezvous.err' 5
+
+
+echo "==> Wait tobcast servers" # ---------------------------------------------
+
+silk run "${server}" "./script/${tobcast}-wait-ready" \
+     "result/tobcast_%{id}.out" "result/tobcast_%{id}.err" 360
+
+
+echo "==> Launch servers" # ---------------------------------------------------
+
+silk run --local-command "${server}" - '%{id}' <<EOF &
+#!/bin/bash
+
+exec > "result/server_\$1.out"
+exec 2> "result/server_\$1.err"
+
+set -x
+
+export RUST_LOG='info'
+
+./chop-chop/target/release/server \\
+    "${rendezvous_ip}:1234" \\
+    'assets/membership.db' \\
+    ${num_servers} \\
+    \$1 \\
+    'assets/passepartout.db' \\
+    'assets/directory.db' \\
+    "--${tobcast}" \\
+    '127.0.0.1:7000' \\
+    --heartbeat-path "result/server_\$1.bin" \\
+    "--${application}" \\
+    --gc_exclude ${gc_exclude}
+    
+EOF
+server_pid=$!
+
+
+echo "==> Launch load brokers" # ----------------------------------------------
+
+silk run --local-command "${load_broker}" - '%{id}' <<EOF &
+#!/bin/bash
+
+mkdir 'result'
+
+exec > "result/load_broker_\$1.out"
+exec 2> "result/load_broker_\$1.err"
+
+set -x
+
+flow_start=\$1
+flow_end=\$(( flow_start + 1 ))
+
+export RUST_LOG='info'
+
+./chop-chop/target/release/load_broker \\
+    "${rendezvous_ip}:1234" \\
+    'assets/membership.db' \\
+    ${num_servers} \\
+    "${load_broker_batch_per_sec}" \\
+    'assets/flows' \\
+    \${flow_start} \\
+    \${flow_end} \\
+    --batches-per-flow $(ceil "${batch_per_flow}") \\
+    --margin ${margin} \\
+    --gc_exclude ${gc_exclude} \\
+    --heartbeat-path "result/load_broker_\$1.bin"
+    
+EOF
+honest_broker_pid=$!
+
+
+echo "==> Launch honest brokers" # --------------------------------------------
+
+silk run --local-command "${honest_broker}" - '%{id}' <<EOF &
+#!/bin/bash
+
+mkdir 'result'
+
+exec > "result/honest_broker_\$1.out"
+exec 2> "result/honest_broker_\$1.err"
+
+set -x
+
+export RUST_LOG='info'
+
+./chop-chop/target/release/honest_broker \\
+    "${rendezvous_ip}:1234" \\
+    9500 \\
+    'assets/membership.db' \\
+    ${num_servers} \\
+    'assets/directory.db' \\
+    --heartbeat-path "result/honest_broker_\$1.bin" \\
+    --margin ${margin}
+    
+EOF
+honest_broker_pid=$!
+
+
+echo "==> launch load clients" # ----------------------------------------------
+
+silk run --local-command "${load_client}" - '%{id}' '%{broker}' <<EOF &
+#!/bin/bash
+
+mkdir 'result'
+
+exec > "result/load_client_\$1.out"
+exec 2> "result/load_client_\$1.err"
+
+set -x
+
+range_start=\$((${num_honest_client_accounts}+\$1*${account_per_load_client}))
+range_end=\$(( range_start + ${account_per_load_client} ))
+
+export RUST_LOG='info'
+
+./chop-chop/target/release/load_client \\
+    "${rendezvous_ip}:1234" \\
+    "\$2:9500" \\
+    ${load_client_ops} \\
+    \${range_start} \\
+    \${range_end} \\
+    ${duration} \\
+    'assets/passepartout.db' \\
+    'assets/directory.db' \\
+    "--${application}"
+
+EOF
+load_client_pid=$! 
+
+echo "==> Launch honest clients" # --------------------------------------------
+
+silk run --local-command "${honest_client}" - '%{id}' '%{broker}' <<EOF &
+#!/bin/bash
+
+mkdir 'result'
+
+exec > "result/honest_client_\$1.out"
+exec 2> "result/honest_client_\$1.err"
+
+set -x
+
+export RUST_LOG='info'
+
+./chop-chop/target/release/honest_client \\
+    "${rendezvous_ip}:1234" \\
+    \$1 \\
+    "\$2:9500" \\
+    ${duration} \\
+    'assets/membership.db' \\
+    ${num_servers} \\
+    'assets/passepartout.db' \\
+    'assets/directory.db' \\
+    "--${application}" \\
+    --heartbeat-path "result/honest_client_\$1.bin"
+    
+EOF
+honest_client_pid=$!
+
+
+echo "==> Wait servers" # -----------------------------------------------------
+
+silk run "${server}" ./script/chop-chop-wait-server \
+     "result/server_%{id}.out" "result/server_%{id}.err" 120
+
+
+echo "==> Run for ${duration} seconds starting from $(date '+%H:%M:%S')" # ----
+
+sleep ${duration}
+
+
+echo "==> Collect" # ----------------------------------------------------------
+
+result_dir="$(date '+%Y-%m-%d-%H-%M-%S').result"
+
+mkdir "${result_dir}"
+
+silk run --stdout=file="${result_dir}/%{role}-%{id}.tar.gz" --local-command \
+     "${all}" - '%{role}' '%{id}' <<EOF
+#!/bin/bash
+
+mv 'result' "\$1-\$2"
+tar -czf - "\$1-\$2"
+
+EOF
+
+(
+    cd "${result_dir}"
+    for archive in *'.tar.gz' ; do
+	tar -xzf "${archive}" && rm -rf "${archive}"
+    done
+)

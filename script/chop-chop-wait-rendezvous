@@ -1,0 +1,30 @@
+#!/bin/bash
+#
+#
+#
+
+set -e
+
+
+logfile="$1" ; shift
+shift
+
+timeout="$1"                  # get timeout or default to 360 seconds
+if ! shift ; then
+    timeout=360
+fi
+
+echo "${timeout}" | grep -Pq '^\d+$'    # make sure that timeout is a number
+test ${timeout} -gt 0                   # make sure that timeout is positive
+
+
+while ! grep -q 'done!' "${logfile}" 2> '/dev/null' ; do
+    timeout=$(( timeout - 1 ))
+
+    if [ ${timeout} -eq 0 ] ; then
+        echo "failed to start rendezvous"
+        exit 1
+    fi >&2
+
+    sleep 1
+done

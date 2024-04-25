@@ -1,0 +1,93 @@
+#!/bin/bash
+#
+#   control-silk-env - create a Silk environment from a setup file
+#
+#   Creates a shell script which defines a Silk route for each type of Chop
+#   Chop node. This file can then be sourced to ease the management of a large
+#   set of nodes.
+#
+#   For example, this script convert the following setup file:
+#
+#       network 192.168.0.0/24
+#       server 1.1.1.1
+#       server 1.1.1.2
+#       rendezvous 2.2.2.2
+#
+#   To the following shell script:
+#
+#       server='(1.1.1.1:3200|1.1.1.2:3200)'
+#       rendezvous='(2.2.2.2:3200)'
+#       all='(1.1.1.1:3200|1.1.1.2:3200)'
+#
+#   This script can be sourced to further command all the servers with commands
+#   like: `silk run "${server}" cmd`
+#
+#   Syntax: control-silk-env <setup>
+#
+#   setup           path of the setup file
+#
+#   Stdout: the shell script defining the route variables
+#
+
+set -e
+
+
+# Silk port to indicate when defining the route variables.
+#
+SILK_PORT=3200
+
+
+# Get the path of the setup file in the first argument.
+#
+setup_path="$1" ; shift
+
+
+# Valid roles to find in a setup file.
+# This script ignores the lines which do not define a valid role.
+#
+ROLES=(
+    'rendezvous'
+    'server'
+    'load-broker' 'honest-broker'
+    'load-client' 'honest-client'
+)
+
+
+# Define one variable per role.
+# If there is no node with a given role then define no variable.
+#
+for role in "${ROLES[@]}" ; do
+    role_var="$(echo "${role}" | tr '-' '_')"
+    sep="${role_var}='("
+
+    while read line_role ip _ ; do
+	if [ "x${line_role}" = "x${role}" ] ; then
+	    printf '%s%s:%d' "${sep}" "${ip}" ${SILK_PORT}
+	    sep='|'
+	fi
+    done < "${setup_path}"
+
+    if [ "${sep}" = '|' ] ; then
+	echo ")'"
+    fi
+done
+
+
+# Define an 'all' variable as a route to all nodes.
+# If there is no node with a given role then define no variable.
+# 
+sep="all='("
+
+while read line_role ip _ ; do
+    for role in "${ROLES[@]}" ; do
+	if [ "x${line_role}" = "x${role}" ] ; then
+	    printf '%s%s:%d' "${sep}" "${ip}" ${SILK_PORT}
+	    sep='|'
+	    break
+	fi
+    done
+done < "${setup_path}"
+
+if [ "${sep}" = '|' ] ; then
+    echo ")'"
+fi

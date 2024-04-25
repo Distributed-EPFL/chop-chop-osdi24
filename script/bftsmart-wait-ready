@@ -1,0 +1,55 @@
+#!/bin/bash
+#
+#   bftsmart-wait-ready - wait for a BFT-SMaRt server to be ready
+#
+#   There is a delay between the launching of a BFT-SMaRt server and the moment
+#   it becomes ready to process request. Typically, BFT-SMaRt servers start by
+#   establishing connections between each others and it might take some time,
+#   especially with many servers.
+#
+#   This script parses the output of a BFT-SMaRt server to detect a message
+#   indicating that the server is ready.
+#
+#   The syntax is the same for BFT-SMaRt and HotStuff TOBcast modules to make
+#   the script practical to use but BFT-SMaRt indicates readyness on stdout
+#   while HotStuff does it on stderr. Therefore this script asks for both log
+#   files and only uses the relevant one.
+#
+#   Syntax: bftsmart-wait-ready <stdout-logfile> <stderr-logfile> [<timeout>]
+#
+#   stdout-logfile  file containing what the server writes on stdout
+#   stderr-logfile  file containing what the server writes on stderr
+#   timeout         number of seconds to wait before to give up
+#
+#   exit value      0 if the server is ready, 1 otherwise
+#
+
+set -e
+
+
+logfile="$1" ; shift          # on BFT-SMaRt, the ready status is on stdout
+shift                         # discard stderr
+
+timeout="$1"                  # get timeout or default to 360 seconds
+if ! shift ; then
+    timeout=360
+fi
+
+echo "${timeout}" | grep -Pq '^\d+$'    # make sure that timeout is a number
+test ${timeout} -gt 0                   # make sure that timeout is positive
+
+
+# Try to find the message 'Ready to process operations' in the logfile.
+# BFT-SMaRt prints this message once it is ready.
+#
+while ! grep -q 'Ready to process operations' "${logfile}" > '/dev/null' ; do
+    timeout=$(( timeout - 1 ))
+
+    if [ ${timeout} -eq 0 ] ; then
+	echo "failed to connect" >&2
+	cat "${logfile}" >&2
+	exit 1
+    fi
+
+    sleep 1
+done
