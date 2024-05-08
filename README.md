@@ -6,6 +6,9 @@ non-commercial license.
 To get a copy of the source code, please fill the LICENSE.pdf document and send
 it to <gauthier.voron@epfl.ch>.
 
+This repository and the Chop Chop repository contains the artifact for the
+paper: [Chop Chop: Byzantine Atomic Broadcast to the Network Limit](https://arxiv.org/pdf/2304.07081).
+
 
 Quick start
 -----------
