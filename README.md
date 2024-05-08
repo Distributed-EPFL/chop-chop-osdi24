@@ -133,3 +133,9 @@ log files for every node in the system.
 
 This command follows the step described in the main Chop Chop repository but
 in an automated way.
+
+
+### Plotting the results
+
+To plot the results obtained from the previous steps, follow the instructions
+in the [dedicated repository](https://github.com/Distributed-EPFL/chop-chop-plots).
