@@ -38,7 +38,7 @@ application='random'
 
 # Atomic Broadcast used internally.
 #   bftsmart
-#   hotstuff (not implemented)
+#   hotstuff
 #
 tobcast='bftsmart'
 

@@ -1,0 +1,63 @@
+#!/bin/bash
+#
+#   hotstuff-wait-ready - wait for a HotStuff server to be ready
+#
+#   There is a delay between the launching of a HotStuff server and the moment
+#   it becomes ready to process request. Typically, HotStuff servers start by
+#   establishing connections between each others and it might take some time,
+#   especially with many servers.
+#
+#   This script parses the output of a HotStuff server to detect a message
+#   indicating that the server is ready.
+#
+#   The syntax is the same for BFT-SMaRt and HotStuff TOBcast modules to make
+#   the script practical to use but BFT-SMaRt indicates readyness on stdout
+#   while HotStuff does it on stderr. Therefore this script asks for both log
+#   files and only uses the relevant one.
+#
+#   Syntax: hotstuff-wait-ready <stdout-logfile> <stderr-logfile> [<timeout>]
+#
+#   stdout-logfile  file containing what the server writes on stdout
+#   stderr-logfile  file containing what the server writes on stderr
+#   timeout         number of seconds to wait before to give up
+#
+#   exit value      0 if the server is ready, 1 otherwise
+#
+
+set -e
+
+
+shift                         # discard stdout
+logfile="$1" ; shift          # on HotStuff, the ready status is on stderr
+
+timeout="$1"                  # get timeout or default to 30 seconds
+if ! shift ; then
+    timeout=30
+fi
+
+echo "${timeout}" | grep -Pq '^\d+$'    # make sure that timeout is a number
+test ${timeout} -gt 0                   # make sure that timeout is positive
+
+
+num_servers=$(cat "hotstuff/assets/hosts.conf" | wc -l)
+
+
+# Try to find as many lines saying 'established' as the number of remote
+# servers.
+#
+while true ; do
+    c=$(grep 'established' "${logfile}" 2> '/dev/null' | wc -l)
+    if [ ${c} -ge $(( nun_servers - 1 )) ] ; then
+	exit 0
+    fi
+
+    timeout=$(( timeout - 1 ))
+
+    if [ ${timeout} -eq 0 ] ; then
+	echo "failed to connect" >&2
+	cat "${logfile}" >&2
+	exit 1
+    fi
+
+    sleep 1
+done

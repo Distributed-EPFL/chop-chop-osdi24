@@ -1,0 +1,29 @@
+#!/bin/bash
+#
+#   hotstuff-tobcast - start a HotStuff server as Chop Chop TOBcast
+#
+#   Syntax: hotstuff-tobcast <id> <num-servers> <batch-size>
+#
+#   id              id of the server (starting at 0)
+#   batch-size      max number of request per batch
+#
+
+set -x
+set -e
+
+
+id=$1 ; shift
+batch_size=$1 ; shift
+
+peerid=0
+peers=()
+for replica in $(cat "hotstuff/assets/hosts.conf") ; do
+    peers+=("${replica}:9000:hotstuff/assets/${peerid}.pk")
+    peerid=$(( peerid + 1 ))
+done
+
+./hotstuff/examples/hotstuff-tobcast \
+    ${id} \
+    ${batch_size} \
+    7000:"hotstuff/assets/${id}.sk" \
+    "${peers[@]}"

@@ -183,8 +183,30 @@ if [ "${tobcast}" = 'bftsmart' ] ; then
     silk run "${server}" sed -ri 's/%{ip}/0.0.0.0/' \
 	 'bftsmart/build/install/library/config/hosts.config'
 elif [ "${tobcast}" = 'hotstuff' ] ; then
-    # TODO
-    true
+    mkdir "${tmpdir}/assets"
+
+    silk run --stdout='raw' "${server}" \
+	echo "%{id} %{ip}" \
+	| sort -g \
+	| cut -d' ' -f2- \
+	> "${tmpdir}/assets/hosts.conf"
+
+    for key in $(seq 0 $(( num_servers - 1 ))) ; do
+	keypath="${tmpdir}/assets/${key}"
+	./hotstuff/examples/hotstuff-tobcast \
+	    "${keypath}.sk":"${keypath}.pk" 2> '/dev/null' &
+    done
+
+    wait
+
+    python3 hotstuff/scripts/gen_conf.py \
+        --prefix="${tmpdir}/assets/hotsuff" \
+	--ips="${tmpdir}/assets/hosts.conf" \
+	--keygen='hotstuff/hotstuff-keygen' \
+	--tls-keygen='hotstuff/hotstuff-tls-keygen'
+
+    silk run "${server}" rm -rf 'hotstuff/assets' || true 2> '/dev/null'
+    silk send -t '/home/ubuntu/hotstuff' "${server}" "${tmpdir}/assets"
 fi
 
 
@@ -408,7 +430,7 @@ silk run --stdout=file="${result_dir}/%{role}-%{id}.tar.gz" --local-command \
 #!/bin/bash
 
 mv 'result' "\$1-\$2"
-tar -czf - "\$1-\$2"
+tar -czf - "\$1-\$2" && rm -rf "\$1-\$2"
 
 EOF
 
